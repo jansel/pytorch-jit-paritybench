@@ -108,7 +108,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -279,7 +279,6 @@ class RoIAlignFunction(Function):
         return output
 
     def backward(self, grad_output):
-        assert self.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = self.feature_size
         grad_input = self.rois.new(batch_size, num_channels, data_height, data_width).zero_()
         roi_align.roi_align_backward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio, grad_output, self.rois, grad_input)
@@ -674,7 +673,6 @@ class RoIPoolFunction(Function):
         return output
 
     def backward(ctx, grad_output):
-        assert ctx.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = ctx.feature_size
         grad_input = grad_output.new(batch_size, num_channels, data_height, data_width).zero_()
         roi_pooling.roi_pooling_backward_cuda(ctx.pooled_height, ctx.pooled_width, ctx.spatial_scale, grad_output, ctx.rois, grad_input, ctx.argmax)
@@ -1165,7 +1163,6 @@ class Gather(Function):
 
     @staticmethod
     def forward(ctx, target_device, dim, *inputs):
-        assert all(map(lambda i: i.is_cuda, inputs))
         ctx.target_device = target_device
         ctx.dim = dim
         ctx.input_gpus = tuple(map(lambda i: i.get_device(), inputs))

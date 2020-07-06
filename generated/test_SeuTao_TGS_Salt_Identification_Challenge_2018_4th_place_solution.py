@@ -26,7 +26,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1002,4 +1002,78 @@ class model154_DeepSupervion(nn.Module):
         hypercol_add_center = torch.cat((hypercol, F.upsample(center_64, scale_factor=hypercol.shape[2], mode='bilinear')), 1)
         x_final = self.logits_final(hypercol_add_center)
         return center_fc, x_no_empty, x_final
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (Decoder,
+     lambda: ([], {'in_channels': 4, 'channels': 4, 'out_channels': 16}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (IBN,
+     lambda: ([], {'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SCSEBlock,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (SELayer,
+     lambda: ([], {'channel': 16}),
+     lambda: ([torch.rand([4, 16, 4, 16])], {}),
+     True),
+    (SEModule,
+     lambda: ([], {'channels': 4, 'reduction': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (StableBCELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (model34_DeepSupervion,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     False),
+    (model50A_DeepSupervion,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     False),
+]
+
+class Test_SeuTao_TGS_Salt_Identification_Challenge_2018_4th_place_solution(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
 

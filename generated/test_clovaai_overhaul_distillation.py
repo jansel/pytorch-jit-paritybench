@@ -50,7 +50,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1745,10 +1745,26 @@ TESTCASES = [
      lambda: ([], {'nb_layers': 1, 'in_planes': 4, 'out_planes': 4, 'block': _mock_layer, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SynchronizedBatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (_ASPPModule,
      lambda: ([], {'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'BatchNorm': _mock_layer}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (_SynchronizedBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
 ]
 
 class Test_clovaai_overhaul_distillation(_paritybench_base):
@@ -1766,4 +1782,16 @@ class Test_clovaai_overhaul_distillation(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
 

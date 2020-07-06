@@ -42,7 +42,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -182,8 +182,6 @@ class _query_depth_point(Function):
             idx: (batch_size, npoint, nsample) int32 array, indices to input points
             pts_cnt: (batch_size, npoint) int32 array, number of unique points in each local region
         """
-        assert xyz1.is_cuda and xyz1.size(1) == 3
-        assert xyz2.is_cuda and xyz2.size(1) == 3
         assert xyz1.size(0) == xyz2.size(0)
         assert xyz1.is_contiguous()
         assert xyz2.is_contiguous()

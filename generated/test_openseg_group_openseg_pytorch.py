@@ -161,7 +161,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -5585,6 +5585,18 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (BatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (DataParallelModel,
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
@@ -5637,6 +5649,10 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      False),
+    (_SyncBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (rSoftMax,
      lambda: ([], {'radix': 4, 'cardinality': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -5688,4 +5704,16 @@ class Test_openseg_group_openseg_pytorch(_paritybench_base):
 
     def test_014(self):
         self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
 

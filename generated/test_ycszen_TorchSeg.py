@@ -122,7 +122,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -185,6 +185,9 @@ import torch.cuda.comm as comm
 
 
 from torch.nn.parallel._functions import Broadcast
+
+
+import queue
 
 
 from torch.utils.cpp_extension import load
@@ -882,7 +885,6 @@ class SigmoidFocalLoss(nn.Module):
         self.alpha = alpha
 
     def forward(self, logits, targets):
-        assert logits.is_cuda
         b, h, w = targets.size()
         logits = logits.view(b, -1)
         targets = targets.view(b, -1)
@@ -1465,6 +1467,18 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (BatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (BiSeNet,
      lambda: ([], {'out_planes': 4, 'is_training': False, 'criterion': 4, 'ohem_criterion': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -1513,6 +1527,10 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (_SyncBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
 ]
 
 class Test_ycszen_TorchSeg(_paritybench_base):
@@ -1554,4 +1572,16 @@ class Test_ycszen_TorchSeg(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
 

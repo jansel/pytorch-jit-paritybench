@@ -37,7 +37,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1514,6 +1514,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (C1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 2048, 64, 64])], {}),
+     False),
     (DataParallelWithCallback,
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
@@ -1522,9 +1534,41 @@ TESTCASES = [
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
      False),
+    (HRNetV2,
+     lambda: ([], {'n_class': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MobileNetV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (PPM,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4096, 64, 64])], {}),
+     False),
+    (SynchronizedBatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (UserScatteredDataParallel,
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (_SynchronizedBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
 ]
 
@@ -1537,4 +1581,37 @@ class Test_CSAILVision_semantic_segmentation_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

@@ -319,7 +319,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -471,6 +471,9 @@ from math import ceil
 from random import Random
 
 
+import queue
+
+
 from collections import defaultdict
 
 
@@ -544,6 +547,9 @@ from copy import deepcopy
 
 
 from copy import copy
+
+
+from queue import Queue
 
 
 from torch.nn import functional

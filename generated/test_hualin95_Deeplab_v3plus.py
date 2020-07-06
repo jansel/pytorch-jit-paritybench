@@ -31,7 +31,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -924,6 +924,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AsppModule,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2048, 64, 64])], {}),
+     False),
     (Block,
      lambda: ([], {'in_filters': 4, 'out_filters': 4, 'reps': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -932,14 +936,38 @@ TESTCASES = [
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
      False),
+    (Decoder,
+     lambda: ([], {'class_num': 4}),
+     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 256, 64, 64])], {}),
+     False),
+    (Encoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2048, 64, 64])], {}),
+     False),
     (SeparableConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SynchronizedBatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Xception,
      lambda: ([], {'num_classes': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
+    (_SynchronizedBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
 ]
 
 class Test_hualin95_Deeplab_v3plus(_paritybench_base):
@@ -954,4 +982,25 @@ class Test_hualin95_Deeplab_v3plus(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

@@ -11,7 +11,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -197,31 +197,6 @@ class GPUForgetMult(torch.autograd.Function):
         return grad_f, grad_x
 
 
-class ForgetMult(torch.nn.Module):
-    """ForgetMult computes a simple recurrent equation:
-    h_t = f_t * x_t + (1 - f_t) * h_{t-1}
-
-    This equation is equivalent to dynamic weighted averaging.
-
-    Inputs: X, hidden
-        - X (seq_len, batch, input_size): tensor containing the features of the input sequence.
-        - F (seq_len, batch, input_size): tensor containing the forget gate values, assumed in range [0, 1].
-        - hidden_init (batch, input_size): tensor containing the initial hidden state for the recurrence (h_{t-1}).
-        - use_cuda: If True, use the fast element-wise CUDA kernel for recurrence. If False, uses naive for loop. Default: True.
-    """
-
-    def __init__(self):
-        super(ForgetMult, self).__init__()
-
-    def forward(self, f, x, hidden_init=None, use_cuda=True):
-        use_cuda = use_cuda and torch.cuda.is_available()
-        if use_cuda:
-            assert f.is_cuda and x.is_cuda, 'GPU ForgetMult with fast element-wise CUDA kernel requested but tensors not on GPU'
-        if hidden_init is None:
-            return GPUForgetMult()(f, x) if use_cuda else CPUForgetMult()(f, x)
-        return GPUForgetMult()(f, x, hidden_init) if use_cuda else CPUForgetMult()(f, x, hidden_init)
-
-
 class QRNNLayer(nn.Module):
     """Applies a single layer Quasi-Recurrent Neural Network (QRNN) to an input sequence.
 
@@ -361,37 +336,9 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
-    (ForgetMult,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (Model,
-     lambda: ([], {}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
-     False),
-    (QRNN,
-     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
-    (QRNNLayer,
-     lambda: ([], {'input_size': 4}),
-     lambda: ([torch.rand([4, 4, 4])], {}),
-     False),
 ]
 
 class Test_salesforce_pytorch_qrnn(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

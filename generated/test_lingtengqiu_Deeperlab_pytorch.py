@@ -53,7 +53,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -134,6 +134,9 @@ import torch.cuda.comm as comm
 
 
 from torch.nn.parallel._functions import Broadcast
+
+
+import queue
 
 
 from torch.utils.cpp_extension import load
@@ -1295,6 +1298,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Block,
      lambda: ([], {'in_filters': 4, 'out_filters': 4, 'reps': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1335,6 +1350,10 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'BatchNorm': _mock_layer}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (_SyncBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (dense_to_space,
      lambda: ([], {'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1381,4 +1400,16 @@ class Test_lingtengqiu_Deeperlab_pytorch(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
 

@@ -54,7 +54,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1249,7 +1249,6 @@ class AffineGridGen3DFunction(Function):
     def backward(ctx, grad_output):
         N, C, sz1, sz2, sz3 = ctx.size
         assert grad_output.size() == torch.Size([N, sz1, sz2, sz3, 3])
-        assert ctx.is_cuda == grad_output.is_cuda
         grad_output = grad_output.contiguous()
         base_grid = ctx.base_grid
         grad_theta = torch.bmm(base_grid.view(N, sz1 * sz2 * sz3, 4).transpose(1, 2), grad_output.view(N, sz1 * sz2 * sz3, 3))

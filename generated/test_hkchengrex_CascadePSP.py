@@ -56,7 +56,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -883,6 +883,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (DataParallelWithCallback,
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
@@ -895,6 +899,22 @@ TESTCASES = [
      lambda: ([], {'epsilon': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SynchronizedBatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (_SynchronizedBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
 ]
 
 class Test_hkchengrex_CascadePSP(_paritybench_base):
@@ -906,4 +926,19 @@ class Test_hkchengrex_CascadePSP(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

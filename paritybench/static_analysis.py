@@ -33,6 +33,7 @@ IMPORT_WHITELIST = {
     "warnings",
     "tensorflow",
     "sklearn",
+    "queue",
 }
 
 
@@ -88,6 +89,11 @@ class ASTCleanup(ast.NodeTransformer):
             ast.copy_location(new_node, old_node=node)
 
         return self.generic_visit(new_node)
+
+    def visit_Assert(self, node: ast.Assert):
+        if 'is_cuda' in ast.dump(node):
+            return None
+        return self.generic_visit(node)
 
 
 def filter_decorators(decorator_list):

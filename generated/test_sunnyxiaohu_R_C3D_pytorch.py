@@ -277,7 +277,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -397,7 +397,6 @@ class RoITemporalPoolFunction(Function):
         return output
 
     def backward(ctx, grad_output):
-        assert ctx.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_length, data_height, data_width = ctx.feature_size
         grad_input = grad_output.new(batch_size, num_channels, data_length, data_height, data_width).zero_()
         roi_temporal_pooling.roi_temporal_pooling_backward_cuda(ctx.pooled_length, ctx.pooled_height, ctx.pooled_width, ctx.temporal_scale, ctx.ctx_ratio, grad_output, ctx.rois, grad_input, ctx.argmax)

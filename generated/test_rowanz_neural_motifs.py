@@ -60,7 +60,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -229,7 +229,6 @@ class RoIAlignFunction(Function):
         return output
 
     def backward(self, grad_output):
-        assert self.feature_size is not None and grad_output.is_cuda
         rois = self.saved_tensors[0]
         rois_normalized = rois.clone()
         batch_size, num_channels, data_height, data_width = self.feature_size

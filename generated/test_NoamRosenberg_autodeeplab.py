@@ -71,7 +71,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -2406,6 +2406,14 @@ TESTCASES = [
      lambda: ([], {'C': 4, 'depth': 1, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (ASPP_module,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'dilation': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (DataParallelWithCallback,
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
@@ -2470,10 +2478,26 @@ TESTCASES = [
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SynchronizedBatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Zero,
      lambda: ([], {'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (_SynchronizedBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
 ]
 
 class Test_NoamRosenberg_autodeeplab(_paritybench_base):
@@ -2533,4 +2557,22 @@ class Test_NoamRosenberg_autodeeplab(_paritybench_base):
 
     def test_018(self):
         self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
 

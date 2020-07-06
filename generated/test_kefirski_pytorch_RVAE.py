@@ -24,7 +24,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -386,10 +386,6 @@ class NEG_loss(nn.Module):
             loss defined in Mikolov et al. Distributed Representations of Words and Phrases and their Compositionality
             papers.nips.cc/paper/5021-distributed-representations-of-words-and-phrases-and-their-compositionality.pdf
         """
-        assert parameters_allocation_check(self), """
-            Invalid CUDA options. out_embed and in_embed parameters both should be stored in the same memory
-            got out_embed.is_cuda = {}, in_embed.is_cuda = {}
-            """.format(self.out_embed.weight.is_cuda, self.in_embed.weight.is_cuda)
         use_cuda = self.out_embed.weight.is_cuda
         [batch_size] = input_labes.size()
         input = self.in_embed(input_labes)
@@ -420,9 +416,16 @@ TESTCASES = [
      lambda: ([], {'size': 4, 'num_layers': 1, 'f': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (NEG_loss,
+     lambda: ([], {'num_classes': 4, 'embed_size': 4}),
+     lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), 4], {}),
+     False),
 ]
 
 class Test_kefirski_pytorch_RVAE(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

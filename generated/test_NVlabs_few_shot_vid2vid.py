@@ -84,7 +84,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -3724,6 +3724,18 @@ TESTCASES = [
      lambda: ([], {'fin': 4, 'fout': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (SynchronizedBatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SynchronizedBatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (VGGLoss,
      lambda: ([], {'opt': _mock_config(), 'gpu_ids': False}),
      lambda: ([torch.rand([4, 3, 64, 64]), torch.rand([4, 3, 64, 64])], {}),
@@ -3732,6 +3744,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
+    (_SynchronizedBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (tofp16,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3808,4 +3824,16 @@ class Test_NVlabs_few_shot_vid2vid(_paritybench_base):
 
     def test_021(self):
         self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
 

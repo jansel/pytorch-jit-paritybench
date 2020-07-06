@@ -16,7 +16,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -373,6 +373,10 @@ TESTCASES = [
      lambda: ([], {'dilation_series': [4, 4], 'padding_series': [4, 4], 'num_classes': 4}),
      lambda: ([torch.rand([4, 2048, 64, 64])], {}),
      False),
+    (CrossEntropy2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     False),
     (FCDiscriminator,
      lambda: ([], {'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
@@ -391,4 +395,7 @@ class Test_hfslyc_AdvSemiSeg(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

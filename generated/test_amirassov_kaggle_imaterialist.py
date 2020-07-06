@@ -214,7 +214,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -4163,7 +4163,6 @@ class RoIAlignFunction(Function):
         spatial_scale = ctx.spatial_scale
         sample_num = ctx.sample_num
         rois = ctx.saved_tensors[0]
-        assert feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = feature_size
         out_w = grad_output.size(3)
         out_h = grad_output.size(2)
@@ -4200,7 +4199,6 @@ class RoIPoolFunction(Function):
             out_h, out_w = out_size
         else:
             raise TypeError('"out_size" must be an integer or tuple of integers')
-        assert features.is_cuda
         ctx.save_for_backward(rois)
         num_channels = features.size(1)
         num_rois = rois.size(0)
@@ -4215,7 +4213,6 @@ class RoIPoolFunction(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        assert grad_output.is_cuda
         spatial_scale = ctx.spatial_scale
         feature_size = ctx.feature_size
         argmax = ctx.argmax
@@ -4250,7 +4247,6 @@ class SigmoidFocalLoss(nn.Module):
         self.alpha = alpha
 
     def forward(self, logits, targets):
-        assert logits.is_cuda
         loss = sigmoid_focal_loss(logits, targets, self.gamma, self.alpha)
         return loss.sum()
 

@@ -21,7 +21,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -1153,6 +1153,14 @@ TESTCASES = [
      lambda: ([], {'in_size': 4, 'out_size': 4}),
      lambda: ([torch.rand([4, 4, 8, 8]), torch.rand([4, 4, 16, 16])], {}),
      True),
+    (CrossEntropy2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     True),
+    (CrossEntropy3d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4]), torch.zeros([4, 4, 4, 4], dtype=torch.int64)], {}),
+     True),
     (Discriminator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 64, 64])], {}),
@@ -1284,4 +1292,10 @@ class Test_ginobilinie_medSynthesisV1(_paritybench_base):
 
     def test_018(self):
         self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
 

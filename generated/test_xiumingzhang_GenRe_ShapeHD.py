@@ -60,7 +60,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -292,9 +292,6 @@ class CameraBackProjection(Function):
         assert cam_dist.dim() == 2 and cam_dist.size(1) == depth_t.size(1)
         assert cam_dist.size(0) == depth_t.size(0)
         assert fl.size(0) == depth_t.size(0)
-        assert depth_t.is_cuda
-        assert fl.is_cuda
-        assert cam_dist.is_cuda
         in_shape = depth_t.shape
         cnt = depth_t.new(in_shape[0], in_shape[1], res, res, res).zero_()
         tdf = depth_t.new(in_shape[0], in_shape[1], res, res, res).zero_() + 1 / res
@@ -307,7 +304,6 @@ class CameraBackProjection(Function):
     @staticmethod
     @once_differentiable
     def backward(ctx, grad_output):
-        assert grad_output.is_cuda
         depth_t, fl, cam_dist = ctx.saved_tensors
         cnt = ctx.cnt_forward
         grad_depth = grad_output.new(ctx.depth_shape).zero_()
@@ -607,8 +603,6 @@ class SphericalBackProjection(Function):
         assert spherical.size(2) == grid.size(2)
         assert spherical.size(3) == grid.size(3)
         assert grid.size(4) == 3
-        assert spherical.is_cuda
-        assert grid.is_cuda
         in_shape = spherical.shape
         cnt = spherical.new(in_shape[0], in_shape[1], res, res, res).zero_()
         tdf = spherical.new(in_shape[0], in_shape[1], res, res, res).zero_()
@@ -620,7 +614,6 @@ class SphericalBackProjection(Function):
     @staticmethod
     @once_differentiable
     def backward(ctx, grad_output, grad_phony):
-        assert grad_output.is_cuda
         assert not np.isnan(torch.sum(grad_output.detach()))
         spherical, grid, cnt = ctx.saved_tensors
         grad_depth = grad_output.new(ctx.depth_shape).zero_()
@@ -663,7 +656,6 @@ class NNDFunction(Function):
         assert xyz1.dim() == 3 and xyz2.dim() == 3
         assert xyz1.size(0) == xyz2.size(0)
         assert xyz1.size(2) == 3 and xyz2.size(2) == 3
-        assert xyz1.is_cuda == xyz2.is_cuda
         assert xyz1.type().endswith('FloatTensor') and xyz2.type().endswith('FloatTensor'), 'only FloatTensor are supported for NNDistance'
         assert xyz1.is_contiguous() and xyz2.is_contiguous()
         ctx.is_cuda = xyz1.is_cuda
@@ -690,7 +682,6 @@ class NNDFunction(Function):
         """
         Note that this function needs gradidx placeholders
         """
-        assert ctx.is_cuda == graddist1.is_cuda and ctx.is_cuda == graddist2.is_cuda
         xyz1, xyz2, idx1, idx2 = ctx.saved_tensors
         graddist1 = graddist1.contiguous()
         graddist2 = graddist2.contiguous()
@@ -731,7 +722,6 @@ class CalcStopProb(Function):
     def forward(ctx, prob_in):
         assert prob_in.dim() == 5
         assert prob_in.dtype == torch.float32
-        assert prob_in.is_cuda
         stop_prob = prob_in.new(prob_in.shape)
         stop_prob.zero_()
         calc_prob_lib.calc_prob_forward(prob_in, stop_prob)

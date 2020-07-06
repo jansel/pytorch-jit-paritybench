@@ -483,7 +483,7 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, queue, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
@@ -6122,7 +6122,6 @@ class CARAFEFunction(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        assert grad_output.is_cuda
         features, masks, rfeatures = ctx.saved_tensors
         kernel_size = ctx.kernel_size
         group_size = ctx.group_size
@@ -7998,7 +7997,6 @@ class CARAFENaiveFunction(Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        assert grad_output.is_cuda
         features, masks = ctx.saved_tensors
         kernel_size = ctx.kernel_size
         group_size = ctx.group_size
@@ -8520,7 +8518,6 @@ class RoIPoolFunction(Function):
 
     @staticmethod
     def forward(ctx, features, rois, out_size, spatial_scale):
-        assert features.is_cuda
         out_h, out_w = _pair(out_size)
         assert isinstance(out_h, int) and isinstance(out_w, int)
         ctx.save_for_backward(rois)
@@ -8538,7 +8535,6 @@ class RoIPoolFunction(Function):
     @staticmethod
     @once_differentiable
     def backward(ctx, grad_output):
-        assert grad_output.is_cuda
         spatial_scale = ctx.spatial_scale
         feature_size = ctx.feature_size
         argmax = ctx.argmax
@@ -8585,7 +8581,6 @@ class SigmoidFocalLoss(nn.Module):
         self.alpha = alpha
 
     def forward(self, logits, targets):
-        assert logits.is_cuda
         loss = sigmoid_focal_loss(logits, targets, self.gamma, self.alpha)
         return loss.sum()
 
